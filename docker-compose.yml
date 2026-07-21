@@ -1,0 +1,45 @@
+services:
+
+external-products-api:
+    build: .
+    container_name: hbntory-external-products-api
+    environment:
+      HBN_PRODUCTS_PORT: "5000"
+      HBN_PRODUCTS_LATENCY_MS: "0"
+    ports:
+      - "5001:5000"
+    restart: unless-stopped
+
+db:
+    container_name: hbntory-db
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: devuser
+      POSTGRES_PASSWORD: devpassword
+      POSTGRES_DB: inventory
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+backoffice:
+    build: ./backoffice
+    container_name: hbntory-backoffice
+    environment:
+      HBN_BACKOFFICE_PORT: "5000"
+      HBN_BACKOFFICE_LATENCY_MS: "0"
+      HBN_BACKOFFICE_API_URL: "http://external-products-api:5000"
+    ports:
+      - "5002:5000"
+
+mcpserver:
+    build: ./products-mcp-server
+    container_name: hbntory-mcpserver
+    environment:
+      HBN_MCP_PORT: "5000"
+      HBN_MCP_LATENCY_MS: "0"
+      HBN_MCP_API_URL: "http://external-products-api:5000"
+    ports:
+      - "5003:5000"
+
+volumes:
+  postgres_data:
+

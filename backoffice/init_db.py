@@ -3,14 +3,17 @@ from sqlalchemy.orm import Session
 from models import Base, Branch, User, Stock
 import bcrypt
 from datetime import datetime
+import os
+from dotenv import load_dotenv
 
+load_dotenv()
 
 # Connection
 engine = create_engine("sqlite:///hbntory.db")
 Base.metadata.create_all(engine)
 
 # Hash password
-password = "admin123"
+password = os.getenv("ADMIN_PASSWORD")
 hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
 hash = hash.decode('utf-8') 
 

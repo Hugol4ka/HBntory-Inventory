@@ -41,4 +41,5 @@ class Stock(Base):
     
     __table_args__ = (
         UniqueConstraint('id_product', 'id_branch', name='unique_product_branch'),
+        CheckConstraint('quantity >= 0', name='check_quantity_non_negative'),
     )

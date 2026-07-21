@@ -4,9 +4,10 @@ from sqlalchemy import UniqueConstraint
 from sqlalchemy import ForeignKey
 from datetime import datetime
 from sqlalchemy import DateTime
+
+
 class Base(DeclarativeBase):
     pass
-
 
 class Branch(Base):
     __tablename__ = "branches"

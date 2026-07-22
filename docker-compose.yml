@@ -1,6 +1,6 @@
 services:
   external-products-api:
-    build: ./product_mcp_server
+    build: https://github.com/hbtn-edu/hbntory-products-api.git#main
     container_name: hbntory-external-products-api
     environment:
       HBN_PRODUCTS_PORT: "5000"

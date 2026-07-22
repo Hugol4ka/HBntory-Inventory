@@ -1,7 +1,10 @@
 from fastmcp import FastMCP
 import httpx
+import os
 
 mcp = FastMCP("HBntory-Iventory")
+
+BASE_URL = os.getenv("HBN_MCP_API_URL", "http://localhost:5001")
 
 @mcp.tool()
 async def list_products():
@@ -10,7 +13,7 @@ async def list_products():
     """
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get("http://external-products-api:5000")
+            response = await client.get(f"{BASE_URL}/api/v1/products")
             response.raise_for_status() # Error if statut code are 4xx or 5xx
             return response.json()
     except httpx.RequestError as e:
@@ -27,7 +30,7 @@ async def get_product(product_id: str):
     try:
         async with httpx.AsyncClient() as client:
 
-            response = await client.get(f"http://external-products-api:5000/products/{product_id}")
+            response = await client.get(f"{BASE_URL}/api/v1/products/{product_id}")
 
             if response.status_code == 404:
                 return {"error": f"Product with ID '{product_id}' not found"}

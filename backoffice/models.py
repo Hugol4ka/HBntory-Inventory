@@ -4,6 +4,7 @@ from sqlalchemy import UniqueConstraint
 from sqlalchemy import ForeignKey
 from datetime import datetime
 from sqlalchemy import DateTime
+from sqlalchemy import CheckConstraint
 
 
 class Base(DeclarativeBase):

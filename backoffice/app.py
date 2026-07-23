@@ -31,6 +31,7 @@ def login():
                 return "Invalid username or password."
     return "Ici is the login page. Please submit your username and password via POST request."
 
+
 @app.route("/stock", methods=["GET"])
 @login_required
 @common_user_required
@@ -48,6 +49,35 @@ def get_stock():
         stock_items = db_session.query(Stock).filter_by(id_branch=user.branch_id).all()
         stock_data = [{"id_product": item.id_product, "quantity": item.quantity} for item in stock_items]
         return {"branch": branch.name, "stock": stock_data}, 200
+
+
+
+def get_quantity_of_product_in_branch(session, id_product, id_branch):
+    """
+    Get the quantity of a specific product in a specific branch.
+
+    Args:
+        session: The SQLAlchemy session to use for database operations.
+        id_product: The ID of the product to check.
+        id_branch: The ID of the branch to check.
+    """
+    stock_item = session.query(Stock).filter_by(id_product=id_product, id_branch=id_branch).first()
+    return stock_item.quantity if stock_item else 0
+
+
+@app.route("/stock/<id_product>", methods=["GET"])
+@login_required
+@common_user_required
+def get_stock_in_branch(id_product):
+    """
+    Retrieve the quantity of a specific product in the logged-in user's branch.
+    """
+    with Session(engine) as db_session:
+        user = db_session.query(User).filter_by(id=flask_session.get('user_id')).first()
+        if not user:
+            return "User not found.", 404
+        quantity = get_quantity_of_product_in_branch(db_session, id_product, user.branch_id)
+        return {"quantity": quantity}, 200
 
 if __name__ == "__main__":
     app.run(debug=True)

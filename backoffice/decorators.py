@@ -32,3 +32,17 @@ def admin_required(fonction):
                 return abort(403)
         return fonction(*args, **kwargs)
     return decorated_function   
+
+
+def common_user_required(fonction):
+    @wraps(fonction)
+    def decorated_function(*args, **kwargs):
+        with Session(engine) as session:
+            if 'user_id' not in flask_session:
+                return redirect(url_for("login"))
+            user_id = flask_session.get('user_id')
+            user = session.query(User).filter_by(id=user_id).first()
+        if not user or user.role != 'common_user' or not user.is_active:
+                return abort(403)
+        return fonction(*args, **kwargs)
+    return decorated_function

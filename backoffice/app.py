@@ -1,7 +1,7 @@
 from flask import Flask
 from flask import session as flask_session
-from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
+from database import engine
 from models import Base, Branch, User, Stock
 import bcrypt
 from flask import request
@@ -11,7 +11,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
-engine = create_engine("sqlite:///hbntory.db")
 app.secret_key = os.getenv("SECRET_KEY_FLASK")
 
 @app.route("/login", methods=["GET", "POST"])

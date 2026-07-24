@@ -1,2 +1,4 @@
 fastmcp
 httpx
+sqlalchemy
+psycopg2-binary

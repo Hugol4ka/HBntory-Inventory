@@ -10,7 +10,8 @@ from dotenv import load_dotenv
 from decorators import login_required, admin_required, common_user_required
 from stock_service import remove_stock, add_stock
 from user_service import list_users, create_common_user, soft_delete_user, change_user_password, change_user_branch
-from product_api import list_products, ProductAPIError
+from product_api import list_products, ProductAPIError, get_product_details
+from flask import render_template, flash, redirect, url_for
 
 
 load_dotenv()
@@ -32,10 +33,17 @@ def login():
             user = db_session.query(User).filter_by(username=username).first()
             if user and user.is_active and bcrypt.checkpw(password.encode('utf-8'), user.password_hash.encode('utf-8')):
                 flask_session['user_id'] = user.id
-                return "Login successful!"
+                return redirect(url_for("get_stock"))
             else:
-                return "Invalid username or password."
-    return "Ici is the login page. Please submit your username and password via POST request."
+                flash("Invalid username or password.", "error")
+                return render_template("login.html")
+    return render_template("login.html")
+
+
+@app.route("/logout", methods=["GET"])
+def logout():
+    flask_session.pop('user_id', None)
+    return redirect(url_for('login'))
 
 
 @app.route("/stock", methods=["GET"])
@@ -67,7 +75,7 @@ def get_stock():
             }
             for item in stock_items
         ]
-    return {"branch": branch.name, "stock": stock_data}, 200
+        return render_template("stock.html", branch=branch.name, stock=stock_data, username=user.username)
 
 
 def get_quantity_of_product_in_branch(session, id_product, id_branch):
@@ -119,7 +127,8 @@ def add_stock_to_branch():
         try:
             quantity = int(request.form.get("quantity"))
         except (ValueError, TypeError):
-            return {"error": "Quantity must be a valid integer."}, 400
+            flash("Quantity must be a valid integer.", "error")
+            return redirect(url_for("get_stock"))
         try:
             stock_item = db_session.query(Stock).filter_by(id_product=id_product, id_branch=user.branch_id).first()
 
@@ -128,10 +137,11 @@ def add_stock_to_branch():
                 db_session.add(stock_item)
 
             add_stock(db_session, stock_item, quantity)
-            return {"message": f"Added {quantity} of product {id_product} to branch {user.branch_id}."}, 200
+            flash(f"Added {quantity} of product {id_product}.", "success")
+            return redirect(url_for("get_stock"))
         except (ValueError, TypeError) as e:
-            return {"error": str(e)}, 400
-
+            flash(str(e), "error")
+            return redirect(url_for("get_stock"))
 
 @app.route("/stock/remove", methods=["POST"])
 @login_required
@@ -149,17 +159,21 @@ def remove_stock_from_branch():
         try:
             quantity = int(request.form.get("quantity"))
         except (ValueError, TypeError):
-            return {"error": "Quantity must be a valid integer."}, 400
+            flash("Quantity must be a valid integer.", "error")
+            return redirect(url_for("get_stock"))
         try:
             stock_item = db_session.query(Stock).filter_by(id_product=id_product, id_branch=user.branch_id).first()
 
             if not stock_item:
-                return {"error": f"Product {id_product} not found in branch {user.branch_id}."}, 404
+                flash(f"Product {id_product} not found in this branch.", "error")
+                return redirect(url_for("get_stock"))
 
             remove_stock(db_session, stock_item, quantity)
-            return {"message": f"Removed {quantity} of product {id_product} from branch {user.branch_id}."}, 200
+            flash(f"Removed {quantity} of product {id_product} from branch {user.branch_id}.", "success")
+            return redirect(url_for("get_stock"))
         except (ValueError, TypeError) as e:
-            return {"error": str(e)}, 400
+            flash(str(e), "error")
+            return redirect(url_for("get_stock"))
 
 
 @app.route("/users", methods=["GET"])

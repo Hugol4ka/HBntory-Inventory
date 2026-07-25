@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}HBntory{% endblock %}</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+        header { border-bottom: 2px solid #1B2A4A; padding-bottom: .5rem; margin-bottom: 1.5rem;
+                 display: flex; justify-content: space-between; align-items: baseline; }
+        h1 { color: #1B2A4A; margin: 0; font-size: 1.4rem; }
+        nav a { margin-left: 1rem; color: #2E5EAA; text-decoration: none; }
+        table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+        th, td { text-align: left; padding: .5rem; border-bottom: 1px solid #ddd; }
+        th { background: #EAF0FB; }
+        form { margin: 1rem 0; padding: 1rem; background: #F4F5F7; border-radius: 6px; }
+        label { display: inline-block; min-width: 120px; margin: .3rem 0; }
+        input, select { padding: .35rem; margin: .2rem 0; }
+        button { padding: .4rem 1rem; background: #2E5EAA; color: #fff; border: 0; border-radius: 4px; cursor: pointer; }
+        .flash { padding: .6rem 1rem; border-radius: 4px; margin: .5rem 0; }
+        .success { background: #E9F6EF; color: #2E7D5B; }
+        .error   { background: #FCF3E3; color: #B5730A; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>HBntory</h1>
+        <nav>
+            {% block nav %}{% endblock %}
+        </nav>
+    </header>
+
+    {% for category, message in get_flashed_messages(with_categories=true) %}
+        <div class="flash {{ category }}">{{ message }}</div>
+    {% endfor %}
+
+    {% block content %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Stock — HBntory{% endblock %}
+
+{% block nav %}
+    <span>{{ username }}</span>
+    <a href="{{ url_for('logout') }}">Log out</a>
+{% endblock %}
+
+{% block content %}
+<h2>Stock — {{ branch }}</h2>
+<p>You are operating on branch: <strong>{{ branch }}</strong></p>
+
+<table>
+    <tr><th>Product ID</th><th>Name</th><th>Quantity</th></tr>
+    {% for item in stock %}
+    <tr>
+        <td>{{ item.id_product }}</td>
+        <td>{{ item.name }}</td>
+        <td>{{ item.quantity }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="3">No stock in this branch yet.</td></tr>
+    {% endfor %}
+</table>
+
+<h3>Add stock</h3>
+<form method="POST" action="{{ url_for('add_stock_to_branch') }}">
+    <label for="add_product">Product ID</label>
+    <input type="text" id="add_product" name="id_product" required>
+    <label for="add_qty">Quantity</label>
+    <input type="number" id="add_qty" name="quantity" min="1" required>
+    <button type="submit">Add</button>
+</form>
+
+<h3>Remove stock</h3>
+<form method="POST" action="{{ url_for('remove_stock_from_branch') }}">
+    <label for="rm_product">Product ID</label>
+    <input type="text" id="rm_product" name="id_product" required>
+    <label for="rm_qty">Quantity</label>
+    <input type="number" id="rm_qty" name="quantity" min="1" required>
+    <button type="submit">Remove</button>
+</form>
+{% endblock %}

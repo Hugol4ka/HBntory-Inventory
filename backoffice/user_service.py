@@ -51,3 +51,28 @@ def soft_delete_user(session, user_id):
     user.updated_at = datetime.now()
     session.commit()
     return user
+
+
+def change_user_password(session, user_id, new_plain_password):
+    """Change a user's password."""
+    user = session.query(User).filter_by(id=user_id).first()
+    if not user:
+        raise ValueError(f"User {user_id} not found.")
+    user.password_hash = hash_password(new_plain_password)
+    user.updated_at = datetime.now()
+    session.commit()
+    return user
+
+
+def change_user_branch(session, user_id, new_branch_id):
+    """Change a user's assigned branch."""
+    user = session.query(User).filter_by(id=user_id).first()
+    if not user:
+        raise ValueError(f"User {user_id} not found.")
+    branch = session.query(Branch).filter_by(id=new_branch_id).first()
+    if not branch:
+        raise ValueError(f"Branch {new_branch_id} does not exist.")
+    user.branch_id = new_branch_id
+    user.updated_at = datetime.now()
+    session.commit()
+    return user

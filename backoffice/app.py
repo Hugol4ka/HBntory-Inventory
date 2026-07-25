@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from decorators import login_required, admin_required, common_user_required
 from stock_service import remove_stock, add_stock
 from user_service import list_users, create_common_user, soft_delete_user, change_user_password, change_user_branch
+from product_api import list_products, ProductAPIError
 
 
 load_dotenv()
@@ -52,8 +53,21 @@ def get_stock():
         if not branch:
             return "Branch not found.", 404
         stock_items = db_session.query(Stock).filter_by(id_branch=user.branch_id).all()
-        stock_data = [{"id_product": item.id_product, "quantity": item.quantity} for item in stock_items]
-        return {"branch": branch.name, "stock": stock_data}, 200
+        product_names = {}
+        try:
+            for product in list_products():
+                product_names[product["id"]] = product["name"]
+        except ProductAPIError:
+            pass          # l'API est indisponible : on affichera les quantites sans les noms
+        stock_data = [
+            {
+                "id_product": item.id_product,
+                "name": product_names.get(item.id_product, "Unknown product"),
+                "quantity": item.quantity,
+            }
+            for item in stock_items
+        ]
+    return {"branch": branch.name, "stock": stock_data}, 200
 
 
 def get_quantity_of_product_in_branch(session, id_product, id_branch):
@@ -81,7 +95,12 @@ def get_stock_in_branch(id_product):
         if not user:
             return "User not found.", 404
         quantity = get_quantity_of_product_in_branch(db_session, id_product, user.branch_id)
-        return {"quantity": quantity}, 200
+        try:
+            product_details = get_product_details(id_product)
+            product_name = product_details.get("name", "Unknown product")
+        except ProductAPIError:
+            product_name = "Unknown product"
+        return {"id_product": id_product, "name": product_name, "quantity": quantity}, 200
 
 
 @app.route("/stock", methods=["POST"])

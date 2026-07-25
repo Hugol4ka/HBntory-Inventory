@@ -58,6 +58,8 @@ def change_user_password(session, user_id, new_plain_password):
     user = session.query(User).filter_by(id=user_id).first()
     if not user:
         raise ValueError(f"User {user_id} not found.")
+    if not new_plain_password:
+            raise ValueError("New password cannot be empty.")
     user.password_hash = hash_password(new_plain_password)
     user.updated_at = datetime.now()
     session.commit()

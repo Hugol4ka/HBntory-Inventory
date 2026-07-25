@@ -9,12 +9,15 @@ import os
 from dotenv import load_dotenv
 from decorators import login_required, admin_required, common_user_required
 from stock_service import remove_stock, add_stock
+from user_service import list_users, create_common_user, soft_delete_user, change_user_password, change_user_branch
 
 
 load_dotenv()
 
+
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY_FLASK")
+
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -51,7 +54,6 @@ def get_stock():
         stock_items = db_session.query(Stock).filter_by(id_branch=user.branch_id).all()
         stock_data = [{"id_product": item.id_product, "quantity": item.quantity} for item in stock_items]
         return {"branch": branch.name, "stock": stock_data}, 200
-
 
 
 def get_quantity_of_product_in_branch(session, id_product, id_branch):
@@ -138,6 +140,83 @@ def remove_stock_from_branch():
             remove_stock(db_session, stock_item, quantity)
             return {"message": f"Removed {quantity} of product {id_product} from branch {user.branch_id}."}, 200
         except (ValueError, TypeError) as e:
+            return {"error": str(e)}, 400
+
+
+@app.route("/users", methods=["GET"])
+@login_required
+@admin_required
+def list_users_route():
+    with Session(engine) as db_session:
+        users = list_users(db_session)
+        users_data = []
+        for user in users:
+            users_data.append({
+                "id": user.id,
+                "username": user.username,
+                "role": user.role,
+                "branch_id": user.branch_id,
+                "is_active": user.is_active
+            })
+        return {"users": users_data}, 200
+
+
+@app.route("/users/create", methods=["POST"])
+@login_required
+@admin_required
+def create_user_route():
+    with Session(engine) as db_session:
+        username = request.form.get("username")
+        password = request.form.get("password")
+        try:
+            branch_id = int(request.form.get("branch_id"))
+        except (ValueError, TypeError):
+            return {"error": "Branch ID must be a valid integer."}, 400
+        try:
+            user = create_common_user(db_session, username, password, branch_id)
+            return {"message": f"User {user.username} created successfully.", "user_id": user.id}, 201
+        except ValueError as e:
+            return {"error": str(e)}, 400
+
+
+@app.route("/users/<int:user_id>/delete", methods=["POST"])
+@login_required
+@admin_required
+def delete_user_route(user_id):
+    with Session(engine) as db_session:
+        try:
+            user = soft_delete_user(db_session, user_id)
+            return {"message": f"User {user.username} deactivated successfully."}, 200
+        except ValueError as e:
+            return {"error": str(e)}, 400
+
+
+@app.route("/users/<int:user_id>/password", methods=["POST"])
+@login_required
+@admin_required
+def change_password_route(user_id):
+    with Session(engine) as db_session:
+        new_password = request.form.get("new_password")
+        try:
+            user = change_user_password(db_session, user_id, new_password)
+            return {"message": f"Password for user {user.username} changed successfully."}, 200
+        except ValueError as e:
+            return {"error": str(e)}, 400
+
+
+@app.route("/users/<int:user_id>/branch", methods=["POST"])
+@login_required
+@admin_required
+def change_branch_route(user_id):
+    with Session(engine) as db_session:
+        try:
+            new_branch_id = int(request.form.get("new_branch_id"))
+        except (ValueError, TypeError):
+            return {"error": "New branch ID must be a valid integer."}, 400
+        try:
+            user = change_user_branch(db_session, user_id, new_branch_id)
+            return {"message": f"Branch for user {user.username} changed successfully."}, 200
+        except ValueError as e:
             return {"error": str(e)}, 400
 
 

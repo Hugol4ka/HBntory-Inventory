@@ -224,7 +224,7 @@ def delete_user_route(user_id):
             return {"error": str(e)}, 400
 
 
-@app.route("/users/<int:user_id>/password", methods=["POST"])
+@app.route("/users/password", methods=["POST"])
 @login_required
 @admin_required
 def change_password_route(user_id):
@@ -237,7 +237,7 @@ def change_password_route(user_id):
             return {"error": str(e)}, 400
 
 
-@app.route("/users/<int:user_id>/branch", methods=["POST"])
+@app.route("/users/branch", methods=["POST"])
 @login_required
 @admin_required
 def change_branch_route(user_id):

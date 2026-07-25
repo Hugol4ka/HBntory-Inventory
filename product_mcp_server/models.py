@@ -34,7 +34,7 @@ class Stock(Base):
     __tablename__ = "stock"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    id_product: Mapped[str] = mapped_column(String(50), unique=False, nullable=False)
+    id_product: Mapped[int] = mapped_column(Integer, unique=False, nullable=False)
     id_branch: Mapped[int] = mapped_column(ForeignKey('branches.id'), unique=False, nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     

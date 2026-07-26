@@ -33,6 +33,8 @@ def login():
             user = db_session.query(User).filter_by(username=username).first()
             if user and user.is_active and bcrypt.checkpw(password.encode('utf-8'), user.password_hash.encode('utf-8')):
                 flask_session['user_id'] = user.id
+                if user.role == 'admin':
+                    return redirect(url_for("list_users_route"))
                 return redirect(url_for("get_stock"))
             else:
                 flash("Invalid username or password.", "error")
@@ -182,16 +184,20 @@ def remove_stock_from_branch():
 def list_users_route():
     with Session(engine) as db_session:
         users = list_users(db_session)
+        branches = db_session.query(Branch).all()
+        branch_names = {b.id: b.name for b in branches} 
         users_data = []
         for user in users:
             users_data.append({
                 "id": user.id,
                 "username": user.username,
-                "role": user.role,
-                "branch_id": user.branch_id,
-                "is_active": user.is_active
+                "branch_name": branch_names.get(user.branch_id),
+                "is_active": user.is_active,
+                "role": user.role
             })
-        return {"users": users_data}, 200
+        branches_data = [{"id": b.id, "name": b.name} for b in branches]
+        current = db_session.query(User).filter_by(id=flask_session.get('user_id')).first()
+        return render_template("users.html", users=users_data, branches=branches_data, username=current.username)
 
 
 @app.route("/users/create", methods=["POST"])
@@ -204,12 +210,15 @@ def create_user_route():
         try:
             branch_id = int(request.form.get("branch_id"))
         except (ValueError, TypeError):
-            return {"error": "Branch ID must be a valid integer."}, 400
+            flash("Branch ID must be a valid integer.", "error")
+            return redirect(url_for("list_users_route"))
         try:
             user = create_common_user(db_session, username, password, branch_id)
-            return {"message": f"User {user.username} created successfully.", "user_id": user.id}, 201
+            flash(f"User {user.username} created successfully.", "success")
+            return redirect(url_for("list_users_route"))
         except ValueError as e:
-            return {"error": str(e)}, 400
+            flash(str(e), "error")
+            return redirect(url_for("list_users_route"))
 
 
 @app.route("/users/<int:user_id>/delete", methods=["POST"])
@@ -219,38 +228,55 @@ def delete_user_route(user_id):
     with Session(engine) as db_session:
         try:
             user = soft_delete_user(db_session, user_id)
-            return {"message": f"User {user.username} deactivated successfully."}, 200
+            flash(f"User {user.username} deactivated successfully.", "success")
+            return redirect(url_for("list_users_route"))
         except ValueError as e:
-            return {"error": str(e)}, 400
+            flash(str(e), "error")
+            return redirect(url_for("list_users_route"))
 
 
 @app.route("/users/password", methods=["POST"])
 @login_required
 @admin_required
-def change_password_route(user_id):
+def change_password_route():
     with Session(engine) as db_session:
         new_password = request.form.get("new_password")
         try:
+            user_id = int(request.form.get("user_id"))
+        except (ValueError, TypeError):
+            flash("User ID must be a valid integer.", "error")
+            return redirect(url_for("list_users_route"))
+        try:
             user = change_user_password(db_session, user_id, new_password)
-            return {"message": f"Password for user {user.username} changed successfully."}, 200
+            flash(f"Password for user {user.username} changed successfully.", "success")
+            return redirect(url_for("list_users_route"))
         except ValueError as e:
-            return {"error": str(e)}, 400
+            flash(str(e), "error")
+            return redirect(url_for("list_users_route"))
 
 
 @app.route("/users/branch", methods=["POST"])
 @login_required
 @admin_required
-def change_branch_route(user_id):
+def change_branch_route():
     with Session(engine) as db_session:
+        try:
+            user_id = int(request.form.get("user_id"))
+        except (ValueError, TypeError):
+            flash("User ID must be a valid integer.", "error")
+            return redirect(url_for("list_users_route"))
         try:
             new_branch_id = int(request.form.get("new_branch_id"))
         except (ValueError, TypeError):
-            return {"error": "New branch ID must be a valid integer."}, 400
+            flash("New branch ID must be a valid integer.", "error")
+            return redirect(url_for("list_users_route"))
         try:
             user = change_user_branch(db_session, user_id, new_branch_id)
-            return {"message": f"Branch for user {user.username} changed successfully."}, 200
+            flash(f"Branch for user {user.username} changed successfully.", "success")
+            return redirect(url_for("list_users_route"))
         except ValueError as e:
-            return {"error": str(e)}, 400
+            flash(str(e), "error")
+            return redirect(url_for("list_users_route"))
 
 
 if __name__ == "__main__":

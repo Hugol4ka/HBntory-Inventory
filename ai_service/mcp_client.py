@@ -33,13 +33,11 @@ class ProductMCPClient:
                 "function": {
                     "name": tool.name,
                     "description": tool.description,
-                    "parameters": tool.input_schema,
+                    "parameters": tool.inputSchema,
                 },
             }
             converted_tools.append(converted_tool)
         self.tools = converted_tools
-
-self.tools = converted_tools
 
     async def call_tool(self, name, arguments):
         """Call a tool exposed by the product MCP server and return its result as text."""

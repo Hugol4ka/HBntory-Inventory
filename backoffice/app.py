@@ -8,7 +8,7 @@ from flask import request
 import os
 from dotenv import load_dotenv
 from decorators import login_required, admin_required, common_user_required
-from stock_service import remove_stock, add_stock
+from stock_service import remove_stock, add_stock, get_quantity_of_product_in_branch
 from user_service import list_users, create_common_user, soft_delete_user, change_user_password, change_user_branch
 from product_api import list_products, ProductAPIError, get_product_details
 from flask import render_template, flash, redirect, url_for
@@ -78,39 +78,6 @@ def get_stock():
             for item in stock_items
         ]
         return render_template("stock.html", branch=branch.name, stock=stock_data, username=user.username)
-
-
-def get_quantity_of_product_in_branch(session, id_product, id_branch):
-    """
-    Get the quantity of a specific product in a specific branch.
-
-    Args:
-        session: The SQLAlchemy session to use for database operations.
-        id_product: The ID of the product to check.
-        id_branch: The ID of the branch to check.
-    """
-    stock_item = session.query(Stock).filter_by(id_product=id_product, id_branch=id_branch).first()
-    return stock_item.quantity if stock_item else 0
-
-
-@app.route("/stock/<id_product>", methods=["GET"])
-@login_required
-@common_user_required
-def get_stock_in_branch(id_product):
-    """
-    Retrieve the quantity of a specific product in the logged-in user's branch.
-    """
-    with Session(engine) as db_session:
-        user = db_session.query(User).filter_by(id=flask_session.get('user_id')).first()
-        if not user:
-            return "User not found.", 404
-        quantity = get_quantity_of_product_in_branch(db_session, id_product, user.branch_id)
-        try:
-            product_details = get_product_details(id_product)
-            product_name = product_details.get("name", "Unknown product")
-        except ProductAPIError:
-            product_name = "Unknown product"
-        return {"id_product": id_product, "name": product_name, "quantity": quantity}, 200
 
 
 @app.route("/stock", methods=["POST"])

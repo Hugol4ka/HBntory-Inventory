@@ -21,6 +21,11 @@ app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY_FLASK")
 
 
+@app.route("/")
+def index():
+    return redirect(url_for("login"))
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     '''

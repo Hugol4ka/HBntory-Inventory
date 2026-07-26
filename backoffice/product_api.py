@@ -11,7 +11,7 @@ class ProductAPIError(Exception):
 
 def list_products():
     """Fetch the product catalog from the external Product API."""
-    url = f"{BASE_URL.rstrip('/')}/api/v1/products"
+    url = f"{BASE_URL.rstrip('/')}/api/v1/products?limit=1000"
     try:
         response = requests.get(url, timeout=5)
         response.raise_for_status()

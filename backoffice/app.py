@@ -65,10 +65,10 @@ def get_stock():
         stock_items = db_session.query(Stock).filter_by(id_branch=user.branch_id).all()
         product_names = {}
         try:
-            for product in list_products():
-                product_names[product["id"]] = product["name"]
+            for product in list_products()["results"]:
+                product_names[product["sku"]] = product["name"]
         except ProductAPIError:
-            pass          # l'API est indisponible : on affichera les quantites sans les noms
+            pass
         stock_data = [
             {
                 "id_product": item.id_product,

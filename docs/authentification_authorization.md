@@ -1,6 +1,7 @@
 # HBntory — Backoffice Authentication and Authorization
 
-**Related files**: `backoffice/app.py`, `backoffice/decorators.py`, `backoffice/init_db.py`, `backoffice/models.py`
+**Deliverable**: Task 2 — *Backoffice Authentication and Authorization*
+**Related files**: `backoffice/app.py`, `backoffice/decorators.py`, `backoffice/user_service.py`, `backoffice/init_db.py`, `backoffice/models.py`
 
 ---
 
@@ -17,7 +18,7 @@ The Backoffice was designed with **Server-Side Rendering (SSR)**: every user int
 In this context:
 
 - With a **session**, the identification cookie is sent back **automatically by the browser** on every request. No additional client-side code is needed to maintain authentication from one page to the next.
-- With a **token (JWT)**, we would instead have to write JavaScript to store the token (typically in `localStorage`) and then manually attach it to the `Authorization` header of every request. That mechanism is relevant for a single-page application (SPA) or a mobile app consuming a REST API, but here it would add a layer of complexity for no benefit, since our Backoffice has no standalone JavaScript client.
+- With a **token (JWT)**, we would instead have to write JavaScript to store the token (typically in `localStorage`) and then manually attach it to the `Authorization` header of every request. That mechanism is relevant for a single-page application or a mobile app consuming a REST API, but here it would add a layer of complexity for no benefit, since our Backoffice has no standalone JavaScript client.
 
 ### Benefit and trade-off
 
@@ -45,24 +46,23 @@ The `.env` file holding its actual value is excluded from the repository via `.g
 
 ### Mechanism used: bcrypt
 
-The **bcrypt** library was chosen for password hashing.
+The **bcrypt** library was chosen for password hashing. It is used in two places: `init_db.py` when the administrator account is seeded, and `user_service.hash_password()` for every account created or updated through the Backoffice.
 
 ### How passwords are hashed
 
-When an account is created (`init_db.py` script, and soon when the administrator creates users):
-
 ```python
-password = os.getenv("ADMIN_PASSWORD")
-hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
-hash = hash.decode('utf-8')
+def hash_password(plain_password):
+    """Hash a plain-text password with bcrypt."""
+    hashed = bcrypt.hashpw(plain_password.encode('utf-8'), bcrypt.gensalt())
+    return hashed.decode('utf-8')
 ```
 
 Steps:
 
-1. `password.encode('utf-8')` converts the string into bytes, the format expected by bcrypt.
+1. `plain_password.encode('utf-8')` converts the string into bytes, the format expected by bcrypt.
 2. `bcrypt.gensalt()` generates a random **salt**, different on every call.
 3. `bcrypt.hashpw(...)` combines the password and the salt to produce the digest. The salt is embedded in the final result, which allows it to be recovered at verification time.
-4. `.decode('utf-8')` converts the result (bytes) back into a string, to stay consistent with the type of the `password_hash` column declared as `String(255)`. Without this conversion, the stored type would be `bytes`: SQLite accepts it silently, but a stricter engine such as PostgreSQL — used in deployment — would reject it or behave unexpectedly.
+4. `.decode('utf-8')` converts the result (bytes) back into a string, to stay consistent with the type of the `password_hash` column declared as `String(255)`. Without this conversion the stored type would be `bytes`: SQLite accepts it silently, but a stricter engine such as PostgreSQL — used in deployment — would reject it or behave unexpectedly.
 
 At no point is the plain-text password written to the database or kept after the operation.
 
@@ -84,100 +84,159 @@ if user and user.is_active and bcrypt.checkpw(
 SHA-256 is a **general-purpose** hashing algorithm, originally designed to verify the integrity of files or messages. It is not suited to password storage, for three reasons:
 
 1. **It is deliberately fast.** This is a virtue when checking file integrity, but a serious flaw here: an attacker who has stolen the database can test billions of combinations per second on consumer hardware. bcrypt, on the contrary, is intentionally **slow** and its cost is configurable, making a brute-force attack orders of magnitude more expensive.
-2. **It does not salt digests.** Without a salt, two users who chose the same password end up with exactly the same digest, which is immediately exploitable. It also opens the door to *rainbow tables*, those precomputed tables mapping known digests to their original passwords. bcrypt generates a unique random salt for every hash: two accounts sharing the same password produce different digests, and no precomputed table can be reused.
+2. **It does not salt digests.** Without a salt, two users who chose the same password end up with exactly the same digest, which is immediately exploitable. It also opens the door to *rainbow tables*, precomputed tables mapping known digests to their original passwords. bcrypt generates a unique random salt for every hash: two accounts sharing the same password produce different digests, and no precomputed table can be reused.
 3. **Its cost is not adjustable.** Hardware gets faster every year; a fixed-cost algorithm mechanically loses value over time. bcrypt allows its cost factor to be increased to stay aligned with the state of the art without changing algorithms.
 
 Alternatives such as **Argon2** or **PBKDF2** address the same need and would also have been acceptable. bcrypt was chosen for its maturity, its wide adoption and the simplicity of its Python API.
 
 ---
 
-## 3. Protecting routes against anonymous access
+## 3. Access control: three composable decorators
 
-Access to Backoffice pages is restricted to authenticated users. The check is centralised in a reusable **decorator**, `backoffice/decorators.py`:
+All access rules are enforced by decorators defined in `backoffice/decorators.py`. Centralising the logic there avoids duplicating checks in every view and, more importantly, removes the risk of forgetting one on a route added later.
+
+| Decorator | Question it answers | Response when it fails |
+|---|---|---|
+| `@login_required` | Is someone signed in, does the account still exist and is it active? | Redirect to the login page (HTTP 302) |
+| `@admin_required` | Does the signed-in user hold the `admin` role? | HTTP 403 |
+| `@common_user_required` | Does the signed-in user hold the `common_user` role? | HTTP 403 |
+
+Decorators are stacked on the routes that need them:
 
 ```python
-from flask import session as flask_session
-from functools import wraps
-from flask import url_for, redirect
+@app.route("/users", methods=["GET"])
+@login_required
+@admin_required
+def list_users_route():
+    ...
+```
 
-def login_required(fonction):
+Decorators are applied bottom-up but **execute top-down**: `login_required` runs first and establishes that a valid, active user is signed in; the role decorator then only has to check the role.
+
+### Why 302 for anonymous users and 403 for wrong roles
+
+The two situations are different and the HTTP specification distinguishes them:
+
+- An anonymous visitor is **not authenticated** — sending them to the login page is the useful response.
+- A signed-in user with the wrong role **is** authenticated; redirecting them to a login page would be meaningless since they are already logged in. **403 Forbidden** correctly expresses "we know who you are, but you are not allowed here".
+
+### Reading the role from the database on every request
+
+Both role decorators re-read the user from the database rather than trusting a value cached in the session:
+
+```python
+def admin_required(fonction):
     @wraps(fonction)
     def decorated_function(*args, **kwargs):
-        if 'user_id' not in flask_session:
-            return redirect(url_for("login"))
+        with Session(engine) as session:
+            if 'user_id' not in flask_session:
+                return redirect(url_for("login"))
+            user_id = flask_session.get('user_id')
+            user = session.query(User).filter_by(id=user_id).first()
+        if not user or user.role != 'admin' or not user.is_active:
+            return abort(403)
         return fonction(*args, **kwargs)
     return decorated_function
 ```
 
-Applied to a route:
+**Why this choice.** Storing the role and status in the session at login would have been marginally faster, but those values would then be **frozen for the whole session**. If an administrator soft-deletes an account or changes a user's branch while that user is working, the change would only take effect after the user logged out and back in. Re-reading from the database means an administrative decision applies from the user's very next request. The cost — one query per page on an internal application — is negligible next to that guarantee.
 
-```python
-@app.route("/stock")
-@login_required
-def stock_page():
-    ...
-```
+This behaviour is verified by test: a user working normally is redirected to the login page on their next request as soon as their account is deactivated.
 
-**How it works:** if no `user_id` is present in the session, the view function is **never executed** and the user is redirected to the login page (HTTP 302 response). Protection is therefore enforced server-side, before any processing, and not by merely hiding a link in the interface.
+### Role checks expressed positively
 
-**Role of `@wraps`:** a decorator replaces the original function with the inner `decorated_function`. Without `@wraps`, every decorated view would carry the same internal name (`decorated_function`), and Flask — which identifies its routes by function name — would refuse to register the second decorated route. `@wraps(fonction)` copies the name and docstring of the original function onto the wrapper, preserving endpoint uniqueness.
+`common_user_required` tests `user.role != 'common_user'` rather than `user.role == 'admin'`. The distinction matters for maintenance: a rule written negatively ("anyone who is not an admin") would silently grant access to any future role added to the system. Written positively, only explicitly authorised roles pass.
 
-**Implementation choice:** placing this logic in a decorator rather than repeating it at the top of every view avoids code duplication and, above all, the risk of forgetting it on a route added later. The decorator lives in its own module (`decorators.py`) and imports the session directly from Flask, in order to avoid a circular import with `app.py`.
+### Role of `@wraps`
+
+A decorator replaces the original function with the inner `decorated_function`. Without `@wraps`, every decorated view would carry the same internal name, and Flask — which identifies its routes by function name — would refuse to register the second decorated route. `@wraps(fonction)` copies the name and docstring of the original function onto the wrapper, preserving endpoint uniqueness.
+
+### Avoiding a circular import
+
+`decorators.py` needs the database engine, which is also needed by `app.py`. Importing it from `app.py` would create a circular dependency (`app` imports `decorators`, `decorators` imports `app`). The engine was therefore extracted into a dedicated `database.py` module that both files import and that imports neither of them. As a side benefit, the connection string now exists in a single place — the only line to change when switching from SQLite to PostgreSQL.
 
 ---
 
-## 4. Rejecting deleted users
+## 4. Restricting a common user to their own branch
+
+Role decorators establish *what kind* of operation a user may perform. They say nothing about *which branch* the operation applies to. That second rule is enforced inside every stock route.
+
+### Principle: the authorisation scope never comes from the client
+
+The branch a stock operation applies to is always derived from the session's `user_id`, by reading `user.branch_id` from the database:
+
+```python
+with Session(engine) as db_session:
+    user = db_session.query(User).filter_by(id=flask_session.get('user_id')).first()
+    if not user:
+        return "User not found.", 404
+    stock_items = db_session.query(Stock).filter_by(id_branch=user.branch_id).all()
+```
+
+No route accepts a branch identifier from a URL parameter, a form field or a hidden input. A user cannot reach another branch's stock by editing a URL or tampering with the page, because the branch is never something they supply.
+
+### Client-supplied data that *is* accepted
+
+Product identifiers and quantities do come from the client, through `request.form`. This is not a contradiction: the distinction is not "trusted versus untrusted source" but **what falsifying the value would gain**.
+
+- Falsifying a branch identifier would grant access to data the user has no right to. It is therefore never accepted from the client.
+- Falsifying a product identifier would only reach another product **within the user's own branch**, which they are already fully entitled to consult. There is nothing to gain.
+
+The rule can be stated as: *data that defines the authorisation scope always comes from the server; data that expresses the user's intent within that scope may come from the client.*
+
+Client-supplied values are still validated for type and range before use (see `database_schema.md`, section 6).
+
+### Verified behaviour
+
+Requesting `/stock` while signed in as two different users returns two different branches' data for the same URL. The branch is displayed in the interface on every stock page, satisfying the requirement that the user must always know which branch they are operating on.
+
+---
+
+## 5. Rejecting deleted users
 
 Account deletion is **logical**, not physical: the administrator sets the `is_active` column to `False` without removing the record.
 
-The authentication condition explicitly checks this status:
+Three layers enforce this:
 
-```python
-if user and user.is_active and bcrypt.checkpw(...):
-```
+1. **At login** — the authentication condition checks `user.is_active`, so a deactivated account cannot open a session even with a correct password.
+2. **On every subsequent request** — `login_required` re-reads the account and redirects to the login page if it has been deactivated mid-session.
+3. **In the service layer** — `soft_delete_user()` refuses to deactivate the administrator account, which would otherwise leave the system with no one able to manage users.
 
-A disabled account can therefore no longer open a session, even if the submitted password is correct. Stock records are in no way affected: the `stock` table references branches, never users.
+Stock records are never affected: the `stock` table references branches, never users. This is verified by test — deactivating a user leaves the stock table unchanged.
 
-**Note on error messages:** a non-existent username, an incorrect password and a disabled account all produce the same generic message ("Invalid username or password"). This is deliberate: distinguishing these cases would reveal to an attacker which usernames actually exist in the system.
-
----
-
-## 5. Role-based authorization
-
-### Rules to enforce
-
-| Role | Allowed | Forbidden |
-|---|---|---|
-| `admin` | Manage users (list, create, modify, soft-delete, change password and branch) | Any stock operation |
-| `common_user` | Manage stock **for their assigned branch only** (add, remove, consult, list) | Manage users; operate on another branch |
-
-### Implementation principle
-
-Authorization is enforced **in backend logic**, never solely by hiding elements in the interface. Hiding a button does nothing to prevent a user from calling the corresponding URL directly: the check must therefore be performed server-side, on every request.
-
-The approach follows the same pattern as `@login_required`: dedicated decorators check the role of the session user before executing the view, and deny access otherwise.
-
-For the branch restriction, the principle is to **never trust the branch identifier submitted by the client**. The branch an operation applies to is always re-read from the database using the session's `user_id` (`user.branch_id`), and never from a form field or a URL parameter — which a user could tamper with in order to target another branch.
-
-### Current status
-
-This section describes the agreed strategy. Implementation of the role decorators and branch checks is **in progress** (next development phase), and this documentation will be completed with the corresponding code once it has been written and tested.
+**Note on error messages.** A non-existent username, an incorrect password and a deactivated account all produce the same generic message ("Invalid username or password"). This is deliberate: distinguishing these cases would reveal to an attacker which usernames exist in the system.
 
 ---
 
-## 6. Summary of security measures in place
+## 6. Authorization is enforced in the backend, not in the interface
+
+The specification requires that authorization not rely on hiding buttons. Two design consequences follow:
+
+- Every protected route carries its decorators. Reaching a URL directly — by typing it, bookmarking it or scripting a request — triggers the same server-side check as clicking a link would.
+- The interface reflects permissions rather than defining them. The administrator is redirected to `/users` after signing in and common users to `/stock`, and the user-management page only offers a "Delete" button on rows where deletion is permitted. Should the interface ever offer an action a user is not entitled to, the backend would still refuse it.
+
+Verified by test: a signed-in common user requesting `/users` receives 403; an administrator requesting `/stock` receives 403; an anonymous visitor requesting either is redirected to the login page.
+
+---
+
+## 7. Summary of security measures in place
 
 | Measure | Status |
 |---|---|
 | Passwords hashed with bcrypt (never plain text) | Implemented and tested |
 | Unique random salt per password | Provided automatically by `bcrypt.gensalt()` |
 | Verification without decryption (`checkpw`) | Implemented and tested |
-| Disabled accounts rejected at login | Implemented and tested |
+| Deactivated accounts rejected at login | Implemented and tested |
+| Deactivated accounts ejected mid-session | Implemented and tested |
+| Administrator account cannot be deleted | Implemented and tested |
 | Non-revealing error messages at login | Implemented |
 | Session signed with a secret key | Implemented |
 | Secrets kept out of source control (`.env` + `.gitignore`) | Implemented |
-| Routes protected against anonymous access (`@login_required`) | Implemented and tested |
-| Role-based authorization enforced in the backend | In progress |
-| Common user restricted to their own branch | In progress |
+| Routes protected against anonymous access | Implemented and tested |
+| Role-based authorization enforced in the backend | Implemented and tested |
+| Common user restricted to their own branch | Implemented and tested |
+| Roles re-read from the database on every request | Implemented and tested |
 
 **Out of scope:** in line with the specification, SSL/TLS is not set up for this project. In real conditions it would be essential: without transport encryption, credentials and the session cookie travel in clear text over the network.
+
+**Known limitation:** the database alone does not prevent a common user from being created without a branch, since `branch_id` must remain nullable for the administrator. The rule is enforced in application code at account creation (`create_common_user` rejects a non-existent branch), and stock routes return an explicit error rather than failing if a user somehow has no branch assigned.

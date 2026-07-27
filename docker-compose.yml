@@ -38,6 +38,9 @@ services:
       HBN_MCP_PORT: "5000"
       HBN_MCP_LATENCY_MS: "0"
       HBN_MCP_API_URL: "http://external-products-api:5000"
+      DATABASE_URL: "postgresql://devuser:devpassword@db:5432/inventory"
+    depends_on:
+      - db
     ports:
       - "5003:5000"
 
@@ -46,7 +49,10 @@ services:
     container_name: hbntory-aiservice
     environment:
       HBN_AI_PORT: "5000"
-      HBN_AI_MCP_URL: "http://mcpserver:5000"
+      HBN_AI_MCP_URL: "http://mcpserver:5000/mcp"
+      OLLAMA_HOST: "http://host.docker.internal:11434"
+    depends_on:
+      - mcpserver
     ports:
       - "5004:5000"
 

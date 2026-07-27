@@ -1,6 +1,6 @@
 from contextlib import AsyncExitStack
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
+from mcp import ClientSession
+from mcp.client.streamable_http import streamablehttp_client
 
 import config
 
@@ -14,13 +14,10 @@ class ProductMCPClient:
         self.tools = []
 
     async def connect(self):
-        """Connect to the product MCP server using stdio."""
-        stdio_params = StdioServerParameters(
-            command=config.MCP_SERVER_COMMAND,
-            args=config.MCP_SERVER_ARGS,
+        """Connect to the product MCP server over streamable HTTP."""
+        read, write, _ = await self.exit_stack.enter_async_context(
+            streamablehttp_client(config.MCP_SERVER_URL)
         )
-
-        read, write = await self.exit_stack.enter_async_context(stdio_client(stdio_params))
         self.client_session = await self.exit_stack.enter_async_context(ClientSession(read, write))
 
         await self.client_session.initialize()

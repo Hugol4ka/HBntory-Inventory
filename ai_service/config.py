@@ -3,7 +3,7 @@ import os
 # --- Ollama (LLM local) ---
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:latest")
-OLLAMA_TIMEOUT_SECONDS = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "60"))
+OLLAMA_TIMEOUT_SECONDS = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "180"))
 
 # --- Product MCP Server ---
 MCP_SERVER_URL = os.getenv("HBN_AI_MCP_URL", "http://localhost:5003/mcp")

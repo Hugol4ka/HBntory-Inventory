@@ -30,3 +30,16 @@ def add_stock(session, stock_item, quantity_to_add):
         raise ValueError("Quantity to add must be a positive integer.")
     stock_item.quantity += quantity_to_add
     session.commit()
+
+
+def get_quantity_of_product_in_branch(session, id_product, id_branch):
+    """
+    Get the quantity of a specific product in a specific branch.
+
+    Args:
+        session: The SQLAlchemy session to use for database operations.
+        id_product: The ID of the product to check.
+        id_branch: The ID of the branch to check.
+    """
+    stock_item = session.query(Stock).filter_by(id_product=id_product, id_branch=id_branch).first()
+    return stock_item.quantity if stock_item else 0

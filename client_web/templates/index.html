@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>HBntory — Ask about our stock</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 700px; margin: 3rem auto; padding: 0 1rem; color: #222; }
+        h1 { color: #1B2A4A; font-size: 1.5rem; }
+        p.intro { color: #5A6472; }
+        .row { display: flex; gap: .5rem; margin: 1.5rem 0; }
+        input { flex: 1; padding: .6rem; border: 1px solid #ccc; border-radius: 4px; font-size: 1rem; }
+        button { padding: .6rem 1.2rem; background: #2E5EAA; color: #fff; border: 0; border-radius: 4px;
+                 cursor: pointer; font-size: 1rem; }
+        button:disabled { background: #9aa8c4; cursor: default; }
+        #answer { background: #F4F5F7; border-radius: 6px; padding: 1rem; min-height: 3rem;
+                  white-space: pre-wrap; line-height: 1.5; }
+        #answer.error { background: #FCF3E3; color: #B5730A; }
+    </style>
+</head>
+<body>
+    <h1>HBntory</h1>
+    <p class="intro">Ask anything about our products and stock availability.</p>
+
+    <div class="row">
+        <input type="text" id="question" placeholder="Which branch has the Student Laptop 14?" autofocus>
+        <button id="send">Ask</button>
+    </div>
+
+    <div id="answer"></div>
+
+<script>
+const input  = document.getElementById("question");
+const button = document.getElementById("send");
+const answer = document.getElementById("answer");
+
+async function ask() {
+    const question = input.value.trim();
+    if (!question) return;
+
+    button.disabled = true;
+    answer.className = "";
+    answer.textContent = "Thinking…";
+
+    try {
+        // Appel vers NOTRE serveur (client_web), pas vers le Service IA directement.
+        const res  = await fetch("/ask", {
+            method:  "POST",
+            headers: { "Content-Type": "application/json" },
+            body:    JSON.stringify({ question: question })
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+            answer.textContent = data.answer;
+        } else {
+            answer.className   = "error";
+            answer.textContent = data.error || "Something went wrong.";
+        }
+    } catch (e) {
+        answer.className   = "error";
+        answer.textContent = "Could not reach the server.";
+    } finally {
+        button.disabled = false;
+    }
+}
+
+button.addEventListener("click", ask);
+input.addEventListener("keydown", e => { if (e.key === "Enter") ask(); });
+</script>
+</body>
+</html>

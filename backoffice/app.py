@@ -8,13 +8,23 @@ from flask import request
 import os
 from dotenv import load_dotenv
 from decorators import login_required, admin_required, common_user_required
-from stock_service import remove_stock, add_stock
+from stock_service import remove_stock, add_stock, get_quantity_of_product_in_branch
+from user_service import list_users, create_common_user, soft_delete_user, change_user_password, change_user_branch
+from product_api import list_products, ProductAPIError, get_product_details
+from flask import render_template, flash, redirect, url_for
 
 
 load_dotenv()
 
+
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY_FLASK")
+
+
+@app.route("/")
+def index():
+    return redirect(url_for("login"))
+
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -28,10 +38,19 @@ def login():
             user = db_session.query(User).filter_by(username=username).first()
             if user and user.is_active and bcrypt.checkpw(password.encode('utf-8'), user.password_hash.encode('utf-8')):
                 flask_session['user_id'] = user.id
-                return "Login successful!"
+                if user.role == 'admin':
+                    return redirect(url_for("list_users_route"))
+                return redirect(url_for("get_stock"))
             else:
-                return "Invalid username or password."
-    return "Ici is the login page. Please submit your username and password via POST request."
+                flash("Invalid username or password.", "error")
+                return render_template("login.html")
+    return render_template("login.html")
+
+
+@app.route("/logout", methods=["GET"])
+def logout():
+    flask_session.pop('user_id', None)
+    return redirect(url_for('login'))
 
 
 @app.route("/stock", methods=["GET"])
@@ -49,37 +68,21 @@ def get_stock():
         if not branch:
             return "Branch not found.", 404
         stock_items = db_session.query(Stock).filter_by(id_branch=user.branch_id).all()
-        stock_data = [{"id_product": item.id_product, "quantity": item.quantity} for item in stock_items]
-        return {"branch": branch.name, "stock": stock_data}, 200
-
-
-
-def get_quantity_of_product_in_branch(session, id_product, id_branch):
-    """
-    Get the quantity of a specific product in a specific branch.
-
-    Args:
-        session: The SQLAlchemy session to use for database operations.
-        id_product: The ID of the product to check.
-        id_branch: The ID of the branch to check.
-    """
-    stock_item = session.query(Stock).filter_by(id_product=id_product, id_branch=id_branch).first()
-    return stock_item.quantity if stock_item else 0
-
-
-@app.route("/stock/<id_product>", methods=["GET"])
-@login_required
-@common_user_required
-def get_stock_in_branch(id_product):
-    """
-    Retrieve the quantity of a specific product in the logged-in user's branch.
-    """
-    with Session(engine) as db_session:
-        user = db_session.query(User).filter_by(id=flask_session.get('user_id')).first()
-        if not user:
-            return "User not found.", 404
-        quantity = get_quantity_of_product_in_branch(db_session, id_product, user.branch_id)
-        return {"quantity": quantity}, 200
+        product_names = {}
+        try:
+            for product in list_products()["results"]:
+                product_names[product["sku"]] = product["name"]
+        except ProductAPIError:
+            pass
+        stock_data = [
+            {
+                "id_product": item.id_product,
+                "name": product_names.get(item.id_product, "Unknown product"),
+                "quantity": item.quantity,
+            }
+            for item in stock_items
+        ]
+        return render_template("stock.html", branch=branch.name, stock=stock_data, username=user.username)
 
 
 @app.route("/stock", methods=["POST"])
@@ -98,7 +101,8 @@ def add_stock_to_branch():
         try:
             quantity = int(request.form.get("quantity"))
         except (ValueError, TypeError):
-            return {"error": "Quantity must be a valid integer."}, 400
+            flash("Quantity must be a valid integer.", "error")
+            return redirect(url_for("get_stock"))
         try:
             stock_item = db_session.query(Stock).filter_by(id_product=id_product, id_branch=user.branch_id).first()
 
@@ -107,10 +111,11 @@ def add_stock_to_branch():
                 db_session.add(stock_item)
 
             add_stock(db_session, stock_item, quantity)
-            return {"message": f"Added {quantity} of product {id_product} to branch {user.branch_id}."}, 200
+            flash(f"Added {quantity} of product {id_product}.", "success")
+            return redirect(url_for("get_stock"))
         except (ValueError, TypeError) as e:
-            return {"error": str(e)}, 400
-
+            flash(str(e), "error")
+            return redirect(url_for("get_stock"))
 
 @app.route("/stock/remove", methods=["POST"])
 @login_required
@@ -128,17 +133,122 @@ def remove_stock_from_branch():
         try:
             quantity = int(request.form.get("quantity"))
         except (ValueError, TypeError):
-            return {"error": "Quantity must be a valid integer."}, 400
+            flash("Quantity must be a valid integer.", "error")
+            return redirect(url_for("get_stock"))
         try:
             stock_item = db_session.query(Stock).filter_by(id_product=id_product, id_branch=user.branch_id).first()
 
             if not stock_item:
-                return {"error": f"Product {id_product} not found in branch {user.branch_id}."}, 404
+                flash(f"Product {id_product} not found in this branch.", "error")
+                return redirect(url_for("get_stock"))
 
             remove_stock(db_session, stock_item, quantity)
-            return {"message": f"Removed {quantity} of product {id_product} from branch {user.branch_id}."}, 200
+            flash(f"Removed {quantity} of product {id_product} from branch {user.branch_id}.", "success")
+            return redirect(url_for("get_stock"))
         except (ValueError, TypeError) as e:
-            return {"error": str(e)}, 400
+            flash(str(e), "error")
+            return redirect(url_for("get_stock"))
+
+
+@app.route("/users", methods=["GET"])
+@login_required
+@admin_required
+def list_users_route():
+    with Session(engine) as db_session:
+        users = list_users(db_session)
+        branches = db_session.query(Branch).all()
+        branch_names = {b.id: b.name for b in branches} 
+        users_data = []
+        for user in users:
+            users_data.append({
+                "id": user.id,
+                "username": user.username,
+                "branch_name": branch_names.get(user.branch_id),
+                "is_active": user.is_active,
+                "role": user.role
+            })
+        branches_data = [{"id": b.id, "name": b.name} for b in branches]
+        current = db_session.query(User).filter_by(id=flask_session.get('user_id')).first()
+        return render_template("users.html", users=users_data, branches=branches_data, username=current.username)
+
+
+@app.route("/users/create", methods=["POST"])
+@login_required
+@admin_required
+def create_user_route():
+    with Session(engine) as db_session:
+        username = request.form.get("username")
+        password = request.form.get("password")
+        try:
+            branch_id = int(request.form.get("branch_id"))
+        except (ValueError, TypeError):
+            flash("Branch ID must be a valid integer.", "error")
+            return redirect(url_for("list_users_route"))
+        try:
+            user = create_common_user(db_session, username, password, branch_id)
+            flash(f"User {user.username} created successfully.", "success")
+            return redirect(url_for("list_users_route"))
+        except ValueError as e:
+            flash(str(e), "error")
+            return redirect(url_for("list_users_route"))
+
+
+@app.route("/users/<int:user_id>/delete", methods=["POST"])
+@login_required
+@admin_required
+def delete_user_route(user_id):
+    with Session(engine) as db_session:
+        try:
+            user = soft_delete_user(db_session, user_id)
+            flash(f"User {user.username} deactivated successfully.", "success")
+            return redirect(url_for("list_users_route"))
+        except ValueError as e:
+            flash(str(e), "error")
+            return redirect(url_for("list_users_route"))
+
+
+@app.route("/users/password", methods=["POST"])
+@login_required
+@admin_required
+def change_password_route():
+    with Session(engine) as db_session:
+        new_password = request.form.get("new_password")
+        try:
+            user_id = int(request.form.get("user_id"))
+        except (ValueError, TypeError):
+            flash("User ID must be a valid integer.", "error")
+            return redirect(url_for("list_users_route"))
+        try:
+            user = change_user_password(db_session, user_id, new_password)
+            flash(f"Password for user {user.username} changed successfully.", "success")
+            return redirect(url_for("list_users_route"))
+        except ValueError as e:
+            flash(str(e), "error")
+            return redirect(url_for("list_users_route"))
+
+
+@app.route("/users/branch", methods=["POST"])
+@login_required
+@admin_required
+def change_branch_route():
+    with Session(engine) as db_session:
+        try:
+            user_id = int(request.form.get("user_id"))
+        except (ValueError, TypeError):
+            flash("User ID must be a valid integer.", "error")
+            return redirect(url_for("list_users_route"))
+        try:
+            new_branch_id = int(request.form.get("new_branch_id"))
+        except (ValueError, TypeError):
+            flash("New branch ID must be a valid integer.", "error")
+            return redirect(url_for("list_users_route"))
+        try:
+            user = change_user_branch(db_session, user_id, new_branch_id)
+            flash(f"Branch for user {user.username} changed successfully.", "success")
+            return redirect(url_for("list_users_route"))
+        except ValueError as e:
+            flash(str(e), "error")
+            return redirect(url_for("list_users_route"))
 
 
 if __name__ == "__main__":

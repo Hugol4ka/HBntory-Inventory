@@ -1,4 +1,5 @@
 import logging
+import config
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
@@ -6,6 +7,8 @@ from pydantic import BaseModel, Field
 
 from agent import ProductQueryAgent
 from mcp_client import ProductMCPClient
+
+logging.basicConfig(level=logging.INFO)
 
 mcp_client = ProductMCPClient()
 agent = None
@@ -35,7 +38,17 @@ async def query_endpoint(request: QueryRequest):
 
     try:
         result = await agent.answer(request.question)
-        return QueryResponse(answer=result["answer"], tool_calls=result["tool_calls"])
-    except Exception as e:
+    except Exception:
         logging.exception("Error processing query")
         raise HTTPException(status_code=502, detail="The AI service encountered an internal error.")
+
+    logging.info("Tool calls for question %r: %s", request.question, result["tool_calls"])
+
+    return QueryResponse(
+        answer=result["answer"],
+        tool_calls=result["tool_calls"] if config.EXPOSE_TOOL_CALLS else [],
+    )
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=config.AI_PORT)

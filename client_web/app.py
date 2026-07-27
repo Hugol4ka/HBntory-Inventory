@@ -10,7 +10,7 @@ app = Flask(__name__)
 AI_SERVICE_URL = os.getenv("HBN_WEB_CLIENT_URL", "http://localhost:5004")
 
 # Un LLM peut mettre plusieurs secondes a repondre : timeout genereux.
-AI_TIMEOUT = 30
+AI_TIMEOUT = 180
 
 
 @app.route("/")

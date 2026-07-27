@@ -3,49 +3,22 @@ import httpx
 
 import config
 
-SYSTEM_PROMPT = """Tu es l'assistant produit d'HBntory-Inventory.
+TOOL_SYSTEM_PROMPT = "You are the product assistant of HBntory-Inventory. Always use the available tools to answer questions about products, stock and branches. If the question asks whether it is possible to buy one or more quantities of products, you must call check_shopping_list and no other tool."
 
-TYPES DE QUESTIONS SUPPORTÉES - tu peux répondre uniquement à ces 4 cas :
-1. Détails d'un produit (prix, description, catégorie...) → utilise get_product ou list_products.
-2. Où un produit est disponible → utilise get_stock_by_product.
-3. Quels produits sont disponibles dans une succursale donnée → utilise get_stock_by_branch,
-   puis croise les product_id obtenus avec list_products pour donner leurs noms
-   (get_stock_by_branch ne renvoie que des IDs, jamais de noms).
-4. Si une liste de produits/quantités souhaités peut être satisfaite par une ou plusieurs
-   succursales → utilise check_shopping_list. Ce tool calcule déjà la faisabilité pour toi :
-   ne recalcule jamais toi-même une comparaison de quantités, lis directement le champ
-   "feasible_branches" et les "issues" dans "details" pour expliquer ta réponse.
+ANSWER_SYSTEM_PROMPT = """You are the product assistant of HBntory-Inventory. Below you receive the user's question along with results already obtained from data retrieval tools. Formulate a clear and complete answer based on these results, without requesting additional data.
 
-Si la question ne correspond à AUCUN de ces 4 cas, dis poliment que ce type de demande
-n'est pas supporté par cet assistant, sans essayer d'y répondre.
+SUPPORTED QUESTION TYPES - you may only answer these 4 cases:
+1. Details of a product (price, description, category...).
+2. Where a product is available.
+3. Which products are available in a given branch.
+4. Whether a list of desired products and quantities can be satisfied by one or more branches.
 
-TOOLS DISPONIBLES :
-- list_products() : liste tout le catalogue produits.
-- get_product(product_id) : détails d'un produit précis.
-- list_branches() : liste toutes les succursales (id + nom).
-- get_stock_by_product(product_id) : stock d'un produit dans toutes les succursales.
-- get_stock_by_branch(branch_id) : liste des product_id + quantités dans une succursale
-  (PAS de noms de produits - à croiser avec list_products si besoin de les afficher).
-- check_shopping_list(items) : détermine quelle(s) succursale(s) peuvent satisfaire une
-  liste de {product_id, quantity}. Renvoie déjà le verdict calculé, ne recalcule rien toi-même.
+If the question does not match ANY of these 4 cases, politely say that this type of request is not supported by this assistant, without attempting to answer it.
 
-RÉSOLUTION DES NOMS DE SUCCURSALES (règle obligatoire) :
-- get_stock_by_branch attend un branch_id (nombre entier), jamais un nom.
-- Si l'utilisateur mentionne une succursale par son nom (ex: "North Branch") plutôt que
-  par son ID, appelle d'abord list_branches() pour retrouver l'id correspondant à ce nom,
-  puis utilise cet id dans get_stock_by_branch.
-- Si aucune succursale de list_branches() ne correspond au nom donné par l'utilisateur,
-  dis-le clairement plutôt que de deviner ou d'utiliser un id au hasard.
-
-RÈGLES DE GROUNDING (obligatoires) :
-- Ne jamais inventer un nom de produit, un prix, une quantité en stock ou une succursale.
-- Utilise uniquement les données renvoyées par les tools.
-- Si un tool renvoie une erreur ou aucune donnée pertinente, dis clairement à l'utilisateur
-  que l'information n'est pas disponible plutôt que de deviner.
-- Si une information nécessaire manque pour répondre complètement, dis-le explicitement
-  plutôt que de compléter par une supposition.
-- N'expose jamais de détails techniques internes (ids de session, structure de la base,
-  messages d'erreur bruts type stack trace) : reformule toujours en langage clair.
+GROUNDING RULES (mandatory):
+- Never invent a product name, a price, a stock quantity or a branch.
+- Use only the data provided above.
+- If the provided data does not contain the requested information, state clearly that the information is not available rather than guessing.
 """
 
 class ProductQueryAgent:
@@ -54,10 +27,12 @@ class ProductQueryAgent:
         self.mcp_client = mcp_client
 
     async def answer(self, question):
+        # --- Étape 1 : récupération des données via les tools ---
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": TOOL_SYSTEM_PROMPT},
             {"role": "user", "content": question},
         ]
+        tool_call_trace = []
 
         async with httpx.AsyncClient(base_url=config.OLLAMA_HOST, timeout=config.OLLAMA_TIMEOUT_SECONDS) as client:
             for round_number in range(config.MAX_TOOL_CALL_ROUNDS):
@@ -75,22 +50,55 @@ class ProductQueryAgent:
                 data = response.json()
                 message = data["message"]
 
+                # Plus aucun tool demandé : la phase de récupération est terminée.
                 if not message.get("tool_calls"):
-                    return {"answer": message["content"].strip(), "tool_calls": []}
+                    break
 
-                if message.get("tool_calls"):
-                    messages.append(message)
+                messages.append(message)
 
-                    for tool_call in message["tool_calls"]:
-                        tool_name = tool_call["function"]["name"]
-                        tool_args = tool_call["function"]["arguments"]
-                        if isinstance(tool_args, str):
-                            tool_args = json.loads(tool_args)
+                for tool_call in message["tool_calls"]:
+                    tool_name = tool_call["function"]["name"]
+                    tool_args = tool_call["function"]["arguments"]
+                    if isinstance(tool_args, str):
+                        tool_args = json.loads(tool_args)
 
-                        tool_result = await self.mcp_client.call_tool(tool_name, tool_args)
-                        messages.append({"role": "tool", "name": tool_name, "content": tool_result})
+                    tool_result = await self.mcp_client.call_tool(tool_name, tool_args)
+                    tool_call_trace.append({
+                        "tool": tool_name,
+                        "arguments": tool_args,
+                        "result": tool_result,
+                    })
+                    messages.append({"role": "tool", "name": tool_name, "content": tool_result})
 
+            # --- Étape 2 : formulation de la réponse finale, sans tool-calling ---
+            if tool_call_trace:
+                collected_data = json.dumps(tool_call_trace, indent=2, ensure_ascii=False)
+            else:
+                collected_data = "Aucune donnée n'a été récupérée."
+
+            answer_messages = [
+                {"role": "system", "content": ANSWER_SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Question de l'utilisateur : {question}\n\n"
+                        f"Données récupérées :\n{collected_data}"
+                    ),
+                },
+            ]
+
+            answer_response = await client.post(
+                "/api/chat",
+                json={
+                    "model": config.OLLAMA_MODEL,
+                    "messages": answer_messages,
+                    "stream": False,
+                },
+            )
+            answer_response.raise_for_status()
+
+        final_message = answer_response.json()["message"]
         return {
-            "answer": "Je n'ai pas pu obtenir de réponse satisfaisante après plusieurs tentatives.",
-            "tool_calls": [msg for msg in messages if msg["role"] == "tool"],
+            "answer": final_message["content"].strip(),
+            "tool_calls": tool_call_trace,
         }

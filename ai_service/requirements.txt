@@ -1,0 +1,6 @@
+mcp
+mcp
+fastapi
+uvicorn[standard]
+httpx
+pydantic

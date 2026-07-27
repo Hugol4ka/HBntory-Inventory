@@ -1,6 +1,7 @@
 from contextlib import AsyncExitStack
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
+import asyncio
 
 import config
 
@@ -13,15 +14,29 @@ class ProductMCPClient:
         self.exit_stack = AsyncExitStack()
         self.tools = []
 
-    async def connect(self):
-        """Connect to the product MCP server over streamable HTTP."""
-        read, write, _ = await self.exit_stack.enter_async_context(
-            streamablehttp_client(config.MCP_SERVER_URL)
-        )
-        self.client_session = await self.exit_stack.enter_async_context(ClientSession(read, write))
-
-        await self.client_session.initialize()
-        listed = await self.client_session.list_tools()
+    async def connect(self, max_attempts=10, delay_seconds=2):
+        """Connect to the product MCP server over streamable HTTP, retrying if it is not ready yet."""
+        for attempt in range(1, max_attempts + 1):
+            try:
+                read, write, _ = await self.exit_stack.enter_async_context(
+                    streamablehttp_client(config.MCP_SERVER_URL)
+                )
+                self.client_session = await self.exit_stack.enter_async_context(
+                    ClientSession(read, write)
+                )
+                await self.client_session.initialize()
+                listed = await self.client_session.list_tools()
+                break
+            except BaseException:
+                try:
+                    await self.exit_stack.aclose()
+                except BaseException:
+                    pass
+                self.exit_stack = AsyncExitStack()
+                self.client_session = None
+                if attempt == max_attempts:
+                    raise
+                await asyncio.sleep(delay_seconds)
 
         converted_tools = []
         for tool in listed.tools:

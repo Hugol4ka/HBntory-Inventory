@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from database import engine
 from sqlalchemy.orm import Session
 from models import Base, Branch, User, Stock
 import bcrypt
@@ -8,8 +8,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Connection
-engine = create_engine("sqlite:///hbntory.db")
+
 Base.metadata.create_all(engine)
 
 # Hash password

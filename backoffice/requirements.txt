@@ -2,3 +2,4 @@ bcrypt
 sqlalchemy
 flask
 requests
+python-dotenv

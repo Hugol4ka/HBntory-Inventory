@@ -69,6 +69,12 @@ async def get_stock_by_branch(branch_id: int):
 
 def _has_enough_stock(session, branch_id, sku, quantity_needed):
     """Check if a branch has enough stock for a specific product SKU."""
+    exists_anywhere = (
+        session.query(Stock).filter(Stock.id_product == sku).first() is not None
+    )
+    if not exists_anywhere:
+        return (f"Unknown SKU '{sku}': no stock record exists for this product in any branch. Check the SKU spelling.", False)
+
     stock = (
         session.query(Stock)
         .filter(Stock.id_branch == branch_id, Stock.id_product == sku)

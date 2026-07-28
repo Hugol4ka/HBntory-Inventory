@@ -1,8 +1,13 @@
+import os
+
+import httpx
 from mcp_instance import mcp
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from database import engine
 from models import Branch, Stock
+
+BASE_URL = os.getenv("HBN_MCP_API_URL", "http://localhost:5001")
 
 
 @mcp.tool()
@@ -43,29 +48,45 @@ async def get_stock_by_product(sku: str):
             "details": str(e),
         }
 
+
 @mcp.tool()
 async def get_stock_by_branch(branch_id: int):
-    """Given a branch ID, list every product stocked in that branch, with quantities.
+    """Given a branch ID, list every product stocked in that branch with its SKU, name and quantity.
     Answers "what is available at branch X?". Example: branch_id=1."""
     try:
         with Session(engine) as session:
+            branch = session.query(Branch).filter(Branch.id == branch_id).first()
+            if branch is None:
+                return {"error": f"Branch {branch_id} does not exist."}
+
             results = (
                 session.query(Stock)
                 .filter(Stock.id_branch == branch_id)
                 .all()
             )
-
             stock_list = [
                 {"sku": stock.id_product, "quantity": stock.quantity}
                 for stock in results
             ]
-        return {"branch_id": branch_id, "stock": stock_list}
-
     except SQLAlchemyError as e:
         return {
             "error": "Impossible to communicate with the database",
             "details": str(e),
         }
+
+    # Enrich each SKU with its catalog name, so the agent never has to join two tools itself.
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{BASE_URL}/api/v1/products", params={"limit": 100})
+            response.raise_for_status()
+            catalog = {p["sku"]: p["name"] for p in response.json().get("results", [])}
+        for item in stock_list:
+            item["name"] = catalog.get(item["sku"], "Unknown product")
+    except httpx.HTTPError:
+        for item in stock_list:
+            item["name"] = "Unavailable"
+
+    return {"branch_id": branch_id, "branch_name": branch.name, "quantity_by_product": stock_list}
 
 def _has_enough_stock(session, branch_id, sku, quantity_needed):
     """Check if a branch has enough stock for a specific product SKU."""

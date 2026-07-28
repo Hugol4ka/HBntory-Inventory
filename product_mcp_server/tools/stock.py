@@ -19,14 +19,15 @@ async def list_branches():
         }
 
 @mcp.tool()
-async def get_stock_by_product(product_id: int):
-    """Get stock quantities for a specific product across all branches."""
+async def get_stock_by_product(sku: str):
+    """Given a product SKU, list every branch that stocks it, with quantities.
+    Answers "where can I find product X?". Example: sku="HB-LAP-1001"."""
     try:
-        with Session(engine) as session: 
+        with Session(engine) as session:
             results = (
                 session.query(Stock, Branch)
                 .join(Branch, Stock.id_branch == Branch.id)
-                .filter(Stock.id_product == product_id)
+                .filter(Stock.id_product == sku)
                 .all()
             )
 
@@ -34,8 +35,8 @@ async def get_stock_by_product(product_id: int):
                 {"branch_id": branch.id, "branch_name": branch.name, "quantity": stock.quantity}
                 for stock, branch in results
             ]
-        return {"product_id": product_id, "stock": stock_list}
-    
+        return {"sku": sku, "stock": stock_list}
+
     except SQLAlchemyError as e:
         return {
             "error": "Impossible to communicate with the database",
@@ -44,7 +45,8 @@ async def get_stock_by_product(product_id: int):
 
 @mcp.tool()
 async def get_stock_by_branch(branch_id: int):
-    """Get stock quantities for all products in a specific branch."""
+    """Given a branch ID, list every product stocked in that branch, with quantities.
+    Answers "what is available at branch X?". Example: branch_id=1."""
     try:
         with Session(engine) as session:
             results = (
@@ -54,7 +56,7 @@ async def get_stock_by_branch(branch_id: int):
             )
 
             stock_list = [
-                {"product_id": stock.id_product, "quantity": stock.quantity}
+                {"sku": stock.id_product, "quantity": stock.quantity}
                 for stock in results
             ]
         return {"branch_id": branch_id, "stock": stock_list}
@@ -65,19 +67,19 @@ async def get_stock_by_branch(branch_id: int):
             "details": str(e),
         }
 
-def _has_enough_stock(session, branch_id, product_id, quantity_needed):
-    """Check if a branch has enough stock for a specific product."""
+def _has_enough_stock(session, branch_id, sku, quantity_needed):
+    """Check if a branch has enough stock for a specific product SKU."""
     stock = (
         session.query(Stock)
-        .filter(Stock.id_branch == branch_id, Stock.id_product == product_id)
+        .filter(Stock.id_branch == branch_id, Stock.id_product == sku)
         .first()
     )
     if stock is None:
-        return (f"Product {product_id} is not available at branch {branch_id}.", False)
+        return (f"Product {sku} is not available at branch {branch_id}.", False)
 
     if stock.quantity < quantity_needed:
         return (
-            f"Product {product_id} has only {stock.quantity} in stock at branch {branch_id}, but {quantity_needed} were requested.",
+            f"Product {sku} has only {stock.quantity} in stock at branch {branch_id}, but {quantity_needed} were requested.",
             False,
         )
 
@@ -85,8 +87,9 @@ def _has_enough_stock(session, branch_id, product_id, quantity_needed):
 
 @mcp.tool()
 async def check_shopping_list(items: list[dict]):
-    """Check which branches can fully satisfy a list of desired products and quantities.
-    Each item must have 'product_id' and 'quantity' keys."""
+    """Check which branches can fully satisfy a shopping list.
+    Each item must have a 'sku' key (string, e.g. "HB-LAP-1001") and a 'quantity' key (integer).
+    Example: items=[{"sku": "HB-LAP-1001", "quantity": 5}]."""
     try:
         with Session(engine) as session:
             branches = session.query(Branch).all()
@@ -98,7 +101,14 @@ async def check_shopping_list(items: list[dict]):
                 issues = []
 
                 for item in items:
-                    message, is_sufficient = _has_enough_stock(session, branch.id, item["product_id"], item["quantity"])
+                    sku = item.get("sku") or item.get("product_id")
+                    if sku is None:
+                        issues.append("An item is missing a 'sku' field.")
+                        continue
+
+                    message, is_sufficient = _has_enough_stock(
+                        session, branch.id, sku, item["quantity"]
+                    )
                     if not is_sufficient:
                         issues.append(message)
 

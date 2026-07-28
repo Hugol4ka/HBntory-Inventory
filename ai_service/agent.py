@@ -1,9 +1,11 @@
 import json
+import logging
+
 import httpx
 
 import config
 
-TOOL_SYSTEM_PROMPT = "You are the product assistant of HBntory-Inventory. Always use the available tools to answer questions about products, stock and branches. If the question asks whether it is possible to buy one or more quantities of products, you must call check_shopping_list and no other tool."
+TOOL_SYSTEM_PROMPT = TOOL_SYSTEM_PROMPT = "You are the product assistant of HBntory-Inventory. Always use the available tools to answer questions about products, stock and branches. Answer in the same language as the question. Stock tools identify products by SKU (like HB-LAP-1001), never by numeric ID: when the user refers to a product by numeric ID, call get_product first to obtain its SKU, then you MUST call the relevant stock tool with that SKU — get_product alone never answers a stock question. If the question asks whether it is possible to buy one or more quantities of products, you must call check_shopping_list and no other tool."
 
 ANSWER_SYSTEM_PROMPT = """You are the product assistant of HBntory-Inventory. Below you receive the user's question along with results already obtained from data retrieval tools. Formulate a clear and complete answer based on these results, without requesting additional data.
 
@@ -19,7 +21,9 @@ GROUNDING RULES (mandatory):
 - Never invent a product name, a price, a stock quantity or a branch.
 - Use only the data provided above.
 - If the provided data does not contain the requested information, state clearly that the information is not available rather than guessing.
+- Products are identified by SKU in stock data (like HB-LAP-1001). When presenting results, use the product name if available rather than the raw SKU.
 """
+
 
 class ProductQueryAgent:
 
@@ -27,7 +31,7 @@ class ProductQueryAgent:
         self.mcp_client = mcp_client
 
     async def answer(self, question):
-        # --- Étape 1 : récupération des données via les tools ---
+        # --- Stage 1: data retrieval through tools ---
         messages = [
             {"role": "system", "content": TOOL_SYSTEM_PROMPT},
             {"role": "user", "content": question},
@@ -43,14 +47,23 @@ class ProductQueryAgent:
                         "messages": messages,
                         "tools": self.mcp_client.tools,
                         "stream": False,
+                        "think": False,
                     },
                 )
                 response.raise_for_status()
-
                 data = response.json()
+
+                logging.info(
+                    "[tool round %s] prompt_eval=%s eval=%s duration_ms=%s",
+                    round_number,
+                    data.get("prompt_eval_count"),
+                    data.get("eval_count"),
+                    data.get("total_duration", 0) // 1_000_000,
+                )
+
                 message = data["message"]
 
-                # Plus aucun tool demandé : la phase de récupération est terminée.
+                # No tool requested: the retrieval phase is over.
                 if not message.get("tool_calls"):
                     break
 
@@ -70,19 +83,19 @@ class ProductQueryAgent:
                     })
                     messages.append({"role": "tool", "name": tool_name, "content": tool_result})
 
-            # --- Étape 2 : formulation de la réponse finale, sans tool-calling ---
+            # --- Stage 2: final answer formulation, no tool-calling ---
             if tool_call_trace:
                 collected_data = json.dumps(tool_call_trace, indent=2, ensure_ascii=False)
             else:
-                collected_data = "Aucune donnée n'a été récupérée."
+                collected_data = "No data was retrieved."
 
             answer_messages = [
                 {"role": "system", "content": ANSWER_SYSTEM_PROMPT},
                 {
                     "role": "user",
                     "content": (
-                        f"Question de l'utilisateur : {question}\n\n"
-                        f"Données récupérées :\n{collected_data}"
+                        f"User question: {question}\n\n"
+                        f"Retrieved data:\n{collected_data}"
                     ),
                 },
             ]
@@ -93,11 +106,20 @@ class ProductQueryAgent:
                     "model": config.OLLAMA_MODEL,
                     "messages": answer_messages,
                     "stream": False,
+                    "think": False,
                 },
             )
             answer_response.raise_for_status()
+            answer_data = answer_response.json()
 
-        final_message = answer_response.json()["message"]
+            logging.info(
+                "[answer] prompt_eval=%s eval=%s duration_ms=%s",
+                answer_data.get("prompt_eval_count"),
+                answer_data.get("eval_count"),
+                answer_data.get("total_duration", 0) // 1_000_000,
+            )
+
+        final_message = answer_data["message"]
         return {
             "answer": final_message["content"].strip(),
             "tool_calls": tool_call_trace,

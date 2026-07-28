@@ -22,7 +22,7 @@ async def list_products():
 
 @mcp.tool()
 async def get_product(product_id: str):
-    """Get details for a specific product by its ID."""
+    """Get details for a specific product by its numeric ID (e.g. "1") or its SKU (e.g. "HB-LAP-1001"). Always pass the value as a string."""
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(

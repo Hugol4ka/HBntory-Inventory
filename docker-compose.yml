@@ -33,6 +33,7 @@ services:
       - "5002:5000"
     depends_on:
       - db
+    restart: unless-stopped
 
   mcpserver:
     build: ./product_mcp_server

@@ -1,7 +1,9 @@
+import asyncio
+import logging
 from contextlib import AsyncExitStack
+
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
-import asyncio
 
 import config
 
@@ -52,8 +54,20 @@ class ProductMCPClient:
         self.tools = converted_tools
 
     async def call_tool(self, name, arguments):
-        """Call a tool exposed by the product MCP server and return its result as text."""
-        result = await self.client_session.call_tool(name, arguments)
+        """Call a tool exposed by the product MCP server and return its result as text.
+        Reconnects once if the MCP session has been terminated (e.g. server restart)."""
+        try:
+            result = await self.client_session.call_tool(name, arguments)
+        except Exception:
+            logging.warning("MCP session lost, reconnecting...")
+            try:
+                await self.exit_stack.aclose()
+            except BaseException:
+                pass
+            self.exit_stack = AsyncExitStack()
+            self.client_session = None
+            await self.connect()
+            result = await self.client_session.call_tool(name, arguments)
 
         text_parts = []
         for content in result.content:

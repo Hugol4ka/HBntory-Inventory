@@ -21,7 +21,7 @@ class ProductMCPClient:
         for attempt in range(1, max_attempts + 1):
             try:
                 read, write, _ = await self.exit_stack.enter_async_context(
-                    streamablehttp_client(config.MCP_SERVER_URL)
+                    streamable_http_client(config.MCP_SERVER_URL)
                 )
                 self.client_session = await self.exit_stack.enter_async_context(
                     ClientSession(read, write)

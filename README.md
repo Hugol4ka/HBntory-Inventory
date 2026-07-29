@@ -157,6 +157,31 @@ docker compose logs <service>
 docker compose down       # stops containers, keeps data
 docker compose down -v    # also deletes the database volume
 ```
+### Running services individually
+
+Any service can be started on its own — Compose will pull in its declared
+dependencies automatically:
+
+```bash
+docker compose up -d db                       # database only
+docker compose up -d external-products-api    # products catalogue only
+docker compose up -d backoffice               # backoffice (starts db too)
+docker compose up -d mcpserver                # MCP server
+docker compose up -d aiservice                # AI service (starts mcpserver too)
+docker compose up -d webclient                # public interface
+```
+
+Useful for testing one component in isolation, or for restarting a single
+service after a change:
+
+```bash
+docker compose up -d --build backoffice       # rebuild and restart one service
+docker compose restart aiservice              # restart without rebuilding
+docker compose logs -f aiservice              # follow one service's logs
+```
+
+Note that the AI service requires Ollama to be running on the host, and the
+MCP server requires the database.
 
 ### Service endpoints
 

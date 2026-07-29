@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from decorators import login_required, admin_required, common_user_required
 from stock_service import remove_stock, add_stock, get_quantity_of_product_in_branch
 from user_service import list_users, create_common_user, soft_delete_user, change_user_password, change_user_branch
-from product_api import list_products, ProductAPIError, get_product_details
+from product_api import list_products, ProductAPIError, get_product_details, ProductNotFoundError
 from flask import render_template, flash, redirect, url_for
 
 
@@ -104,18 +104,25 @@ def add_stock_to_branch():
             flash("Quantity must be a valid integer.", "error")
             return redirect(url_for("get_stock"))
         try:
+            get_product_details(id_product)
+        except ProductNotFoundError:
+            flash(f"Product with ID {id_product} not found in the external Product API.", "error")
+            return redirect(url_for("get_stock"))
+        except ProductAPIError:
+            flash("External Product API is unavailable. Please try again later.", "error")
+            return redirect(url_for("get_stock"))
+        try:
             stock_item = db_session.query(Stock).filter_by(id_product=id_product, id_branch=user.branch_id).first()
-
             if not stock_item:
                 stock_item = Stock(id_product=id_product, id_branch=user.branch_id, quantity=0)
                 db_session.add(stock_item)
-
             add_stock(db_session, stock_item, quantity)
             flash(f"Added {quantity} of product {id_product}.", "success")
             return redirect(url_for("get_stock"))
         except (ValueError, TypeError) as e:
             flash(str(e), "error")
             return redirect(url_for("get_stock"))
+
 
 @app.route("/stock/remove", methods=["POST"])
 @login_required

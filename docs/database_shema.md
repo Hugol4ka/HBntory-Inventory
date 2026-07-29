@@ -158,6 +158,38 @@ if not isinstance(quantity_to_remove, int) or quantity_to_remove <= 0:
 
 The type check is placed **before** the numeric comparison. Python evaluates an `or` from left to right and stops as soon as one condition is true. Were the order reversed, a value such as `"ten"` would raise a raw `TypeError` on the `"ten" <= 0` comparison before ever reaching the type check — and the user would receive a technical error message instead of the intended business message.
 
+### Asymmetry between reads and writes
+
+Failures of the external Product API are handled differently depending on
+whether the operation reads or writes.
+
+**Reads degrade gracefully.** If the catalogue is unreachable, the stock page
+still renders: quantities come from our own database and remain accurate, only
+product names fall back to "Unknown product". Blocking the page would deny
+users access to data we hold ourselves.
+
+**Writes are refused.** Adding stock requires the product identifier to be
+confirmed against the catalogue. If that confirmation cannot be obtained —
+whether because the SKU does not exist or because the API is down — the
+insertion is rejected.
+
+The reasoning behind the asymmetry: a missing product name is a temporary
+display gap with no lasting consequence, whereas an unverified identifier would
+be written to the database permanently. That row would then be read by the MCP
+server and surfaced to the AI agent, propagating an invalid reference across
+two services. An operation that cannot be validated is not performed.
+
+Two distinct exceptions make the distinction visible to the user:
+`ProductNotFoundError` produces a message inviting them to check the identifier
+they typed, while `ProductAPIError` states that the catalogue is temporarily
+unavailable and the operation should be retried later. Reporting an unreachable
+API as a non-existent product would send the user looking for a typo in a
+perfectly valid SKU.
+
+**Removals are not subject to this check.** A stock row can only exist if its
+identifier was validated at insertion time. Blocking removals during an API
+outage would prevent legitimate work with no integrity benefit.
+
 ---
 
 ## 7. Database initialisation

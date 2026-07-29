@@ -1,5 +1,5 @@
-mcp
-fastapi
-uvicorn[standard]
-httpx
-pydantic
+fastapi==0.140.2
+uvicorn[standard]==0.51.0
+mcp==1.28.1
+httpx==0.28.1
+python-dotenv==1.2.2

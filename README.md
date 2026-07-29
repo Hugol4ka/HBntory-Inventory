@@ -40,25 +40,32 @@ Architecture, technical decisions and final integration were carried out jointly
 
 The system is composed of six containerised services on a single Docker network.
 
+<img width="1041" height="704" alt="Capture d’écran 2026-07-29 à 17 43 39" src="https://github.com/user-attachments/assets/95d0f0ef-84a1-4e45-a2f1-9414dffd3ba5" />
+
+## Repository structure
+
 ```
-        ┌─────────────┐   HTTP/REST   ┌──────────────────┐
-        │ BACKOFFICE  │ ────────────► │  PRODUCTS API    │
- Staff  │   :5002     │               │  :5001 (given)   │
-   ────►│    SSR      │               └──────────────────┘
-        └──────┬──────┘                        ▲
-               │ SQLAlchemy                    │ HTTP
-               ▼  (read + write)               │
-        ┌─────────────┐                ┌───────┴──────┐
-        │ PostgreSQL  │ ◄──────────────│  MCP SERVER  │
-        │   :5432     │   SQLAlchemy   │    :5003     │
-        └─────────────┘   (read only)  └──────▲───────┘
-                                              │ MCP streamable-http
-        ┌─────────────┐   REST         ┌──────┴───────┐    ┌──────────┐
- Public │ WEB CLIENT  │ ────────────►  │  AI SERVICE  │───►│  Ollama  │
-   ────►│   :5005     │  POST /ask     │    :5004     │HTTP│  qwen3   │
-        └─────────────┘                └──────────────┘    └──────────┘
-                                                             host machine
+HBntory-Inventory/
+├── backoffice/              Authenticated internal application
+│   ├── app.py               Flask routes
+│   ├── models.py            SQLAlchemy models
+│   ├── database.py          Engine and connection string
+│   ├── decorators.py        Access control decorators
+│   ├── stock_service.py     Stock business logic
+│   ├── user_service.py      User business logic
+│   ├── product_api.py       External Products API client
+│   ├── init_db.py           Idempotent database seeding
+│   ├── entrypoint.sh        Init then start
+│   └── templates/           Jinja2 templates
+├── product_mcp_server/      MCP server — product and stock tools
+├── ai_service/              AI Query Service — agent and Ollama client
+├── client_web/              Public question interface
+├── docs/                    Technical documentation
+├── docker-compose.yml
+├── .env.example
+└── README.md
 ```
+
 
 | Service | Responsibility | External port |
 |---|---|---|
@@ -366,27 +373,3 @@ Each decision is documented in full under [`docs/`](#documentation). Summary:
 - **Graceful degradation** — the Backoffice remains usable when the external Products API is unreachable: quantities are still displayed, only product names fall back to a placeholder
 
 ---
-
-## Repository structure
-
-```
-HBntory-Inventory/
-├── backoffice/              Authenticated internal application
-│   ├── app.py               Flask routes
-│   ├── models.py            SQLAlchemy models
-│   ├── database.py          Engine and connection string
-│   ├── decorators.py        Access control decorators
-│   ├── stock_service.py     Stock business logic
-│   ├── user_service.py      User business logic
-│   ├── product_api.py       External Products API client
-│   ├── init_db.py           Idempotent database seeding
-│   ├── entrypoint.sh        Init then start
-│   └── templates/           Jinja2 templates
-├── product_mcp_server/      MCP server — product and stock tools
-├── ai_service/              AI Query Service — agent and Ollama client
-├── client_web/              Public question interface
-├── docs/                    Technical documentation
-├── docker-compose.yml
-├── .env.example
-└── README.md
-```

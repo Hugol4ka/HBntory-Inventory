@@ -40,25 +40,70 @@ Architecture, technical decisions and final integration were carried out jointly
 
 The system is composed of six containerised services on a single Docker network.
 
+<img width="1041" height="704" alt="Capture d’écran 2026-07-29 à 17 43 39" src="https://github.com/user-attachments/assets/95d0f0ef-84a1-4e45-a2f1-9414dffd3ba5" />
+
+## Repository structure
+
 ```
-        ┌─────────────┐   HTTP/REST   ┌──────────────────┐
-        │ BACKOFFICE  │ ────────────► │  PRODUCTS API    │
- Staff  │   :5002     │               │  :5001 (given)   │
-   ────►│    SSR      │               └──────────────────┘
-        └──────┬──────┘                        ▲
-               │ SQLAlchemy                    │ HTTP
-               ▼  (read + write)               │
-        ┌─────────────┐                ┌───────┴──────┐
-        │ PostgreSQL  │ ◄──────────────│  MCP SERVER  │
-        │   :5432     │   SQLAlchemy   │    :5003     │
-        └─────────────┘   (read only)  └──────▲───────┘
-                                              │ MCP streamable-http
-        ┌─────────────┐   REST         ┌──────┴───────┐    ┌──────────┐
- Public │ WEB CLIENT  │ ────────────►  │  AI SERVICE  │───►│  Ollama  │
-   ────►│   :5005     │  POST /ask     │    :5004     │HTTP│  qwen3   │
-        └─────────────┘                └──────────────┘    └──────────┘
-                                                             host machine
+HBntory-Inventory/
+├── ai_service/                     AI Query Service — two-stage agent
+│   ├── .dockerignore
+│   ├── Dockerfile
+│   ├── agent.py                    ProductQueryAgent: tool-calling then formulation
+│   ├── config.py                   Env-driven configuration
+│   ├── main.py                     FastAPI app, POST /query, lifespan
+│   ├── mcp_client.py               MCP client (streamable-http, retry, reconnect)
+│   └── requirements.txt
+│
+├── backoffice/                     Authenticated internal application
+│   ├── .dockerignore
+│   ├── Dockerfile
+│   ├── app.py                      Flask routes
+│   ├── database.py                 Engine and connection string
+│   ├── decorators.py               Access control decorators
+│   ├── entrypoint.sh               Init DB then start
+│   ├── init_db.py                  Idempotent database seeding
+│   ├── models.py                   SQLAlchemy models
+│   ├── product_api.py              External Products API client (requests)
+│   ├── requirements.txt
+│   ├── stock_service.py            Stock business logic
+│   ├── user_service.py             User business logic
+│   └── templates/                  Jinja2 templates
+│
+├── client_web/                     Public question interface
+│   ├── .dockerignore
+│   ├── Dockerfile
+│   ├── app.py                      Flask, POST /ask relays to AI service
+│   ├── requirements.txt
+│   └── templates/
+│
+├── product_mcp_server/             MCP server — product and stock tools
+│   ├── .dockerignore
+│   ├── Dockerfile
+│   ├── database.py                 Engine, DATABASE_URL, __file__-anchored path
+│   ├── mcp_instance.py             Shared FastMCP instance (breaks circular import)
+│   ├── models.py                   SQLAlchemy models (duplicated from backoffice)
+│   ├── requirements.txt
+│   ├── server.py                   Entry point: imports tools, starts streamable-http
+│   └── tools/
+│       ├── __init__.py             Makes tools an importable package
+│       ├── catalog.py              list_products, get_product (Products API)
+│       └── stock.py                list_branches, get_stock_by_product,
+│                                   get_stock_by_branch, check_shopping_list (PostgreSQL)
+│
+├── docs/                           Technical documentation
+│   ├── AI_Query_Service_doc.md
+│   ├── McpServer_doc.md
+│   ├── authentification_authorization.md
+│   └── database_shema.md
+│
+├── .env.example
+├── .gitignore
+├── README.md
+├── docker-compose.yml
+└── requirements.txt
 ```
+
 
 | Service | Responsibility | External port |
 |---|---|---|
@@ -366,27 +411,3 @@ Each decision is documented in full under [`docs/`](#documentation). Summary:
 - **Graceful degradation** — the Backoffice remains usable when the external Products API is unreachable: quantities are still displayed, only product names fall back to a placeholder
 
 ---
-
-## Repository structure
-
-```
-HBntory-Inventory/
-├── backoffice/              Authenticated internal application
-│   ├── app.py               Flask routes
-│   ├── models.py            SQLAlchemy models
-│   ├── database.py          Engine and connection string
-│   ├── decorators.py        Access control decorators
-│   ├── stock_service.py     Stock business logic
-│   ├── user_service.py      User business logic
-│   ├── product_api.py       External Products API client
-│   ├── init_db.py           Idempotent database seeding
-│   ├── entrypoint.sh        Init then start
-│   └── templates/           Jinja2 templates
-├── product_mcp_server/      MCP server — product and stock tools
-├── ai_service/              AI Query Service — agent and Ollama client
-├── client_web/              Public question interface
-├── docs/                    Technical documentation
-├── docker-compose.yml
-├── .env.example
-└── README.md
-```
